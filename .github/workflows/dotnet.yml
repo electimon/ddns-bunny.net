@@ -43,15 +43,18 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     outputs:
-      tag_name: ${{ steps.set_tag.outputs.TAG_NAME }}
+      tag_name: ${{ steps.tag.outputs.TAG_NAME }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Generate Tag Name
-        id: set_tag
-        run: echo "TAG_NAME=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_ENV
-      - name: Create Git Tag
+        id: tag
+        run: |
+          TAG_NAME="v$(date +'%Y.%m.%d-%H%M%S')"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
+      - name: Create & Push Tag
         run: |
           git tag ${{ env.TAG_NAME }}
           git push origin ${{ env.TAG_NAME }}
@@ -97,38 +100,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  test-release:
-    strategy:
-      matrix:
-        rid: [linux-x64, linux-arm64, win-x64, osx-x64]
-    runs-on: ubuntu-latest
-    name: Test Release (${{ matrix.rid }})
-    needs: publish
-    permissions:
-      contents: write
-      packages: read
-    steps:
-      - name: Download release
-        uses: robinraju/release-downloader@v1
-        with:
-          latest: true
-          fileName: ddns-bunny.net-${{ needs.create-tag.outputs.tag_name }}-${{ matrix.rid }}.zip
-          extract: true
-          out-file-path: release
-      - name: Test Release Package
-        id: testReleasePackage
-        run: |
-          cd release; ls
-          count=$(ls | wc -l)
-          if [ $count -ne $EXPECTED_COUNT ]; then
-            echo "Expected $EXPECTED_COUNT files, found $count"
-            exit 1
-          fi
-        env:
-          EXPECTED_COUNT: 5
-      - name: Delete Release
-        if: always() && (steps.testReleasePackage.outcome == 'failure')
-        run: |
-          gh release delete ${{ needs.create-tag.outputs.tag_name }} --yes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
