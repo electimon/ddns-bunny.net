@@ -39,29 +39,22 @@ jobs:
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  create-release:
+  create-tag:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    outputs:
+      tag_name: ${{ steps.set_tag.outputs.TAG_NAME }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Get Version
-        id: version
-        run: echo "VERSION=$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_ENV
+      - name: Generate Tag Name
+        id: set_tag
+        run: echo "TAG_NAME=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_ENV
       - name: Create Git Tag
         run: |
-          git tag v${{ env.VERSION }}
-          git push origin v${{ env.VERSION }}
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: Release v${{ env.VERSION }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git tag ${{ env.TAG_NAME }}
+          git push origin ${{ env.TAG_NAME }}
 
   publish:
     strategy:
@@ -73,7 +66,7 @@ jobs:
       checks: write
     runs-on: ubuntu-latest
     name: publish-${{ matrix.rid }}
-    needs: [run-tests, create-release]
+    needs: [run-tests, create-tag]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,10 +87,12 @@ jobs:
       - name: Publish CLI (${{ matrix.rid }})
         run: |
           dotnet publish src/BunnyDDNS.CLI/BunnyDDNS.CLI.csproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true -p:PublishReadyToRun=true
-          zip -j ddns-bunny.net-${{ github.ref_name }}-${{ matrix.rid }}.zip src/BunnyDDNS.CLI/bin/Release/net8.0/${{ matrix.rid }}/publish/* README.md LICENSE
+          zip -j ddns-bunny.net-${{ needs.create-tag.outputs.tag_name }}-${{ matrix.rid }}.zip src/BunnyDDNS.CLI/bin/Release/net8.0/${{ matrix.rid }}/publish/* README.md LICENSE
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.create-tag.outputs.tag_name }}
+          name: Release ${{ needs.create-tag.outputs.tag_name }}
           files: ddns-bunny.net-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,7 +112,7 @@ jobs:
         uses: robinraju/release-downloader@v1
         with:
           latest: true
-          fileName: ddns-bunny.net-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          fileName: ddns-bunny.net-${{ needs.create-tag.outputs.tag_name }}-${{ matrix.rid }}.zip
           extract: true
           out-file-path: release
       - name: Test Release Package
@@ -134,6 +129,6 @@ jobs:
       - name: Delete Release
         if: always() && (steps.testReleasePackage.outcome == 'failure')
         run: |
-          gh release delete ${{ github.ref_name }} --yes
+          gh release delete ${{ needs.create-tag.outputs.tag_name }} --yes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
